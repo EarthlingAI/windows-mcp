@@ -189,7 +189,7 @@ class Desktop:
 
             if as_bytes:
                 buffered = io.BytesIO()
-                screenshot.save(buffered, format="PNG")
+                screenshot.save(buffered, format="PNG", optimize=True, compress_level=6)
                 screenshot = buffered.getvalue()
                 buffered.close()
         else:
