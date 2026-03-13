@@ -73,7 +73,7 @@ mcp = FastMCP(name="windows-mcp", instructions=instructions, lifespan=lifespan)
 
 @mcp.tool(
     name="App",
-    description="Manages Windows applications with three modes: 'launch' (opens the prescibed application), 'resize' (adjusts the size/position of a named window or the active window if name is omitted), 'switch' (brings specific window into focus).",
+    description="Open/start/launch applications and manage windows. Keywords: open, start, launch, program, application, window, foreground, focus, resize. Three modes: 'launch' (opens the prescribed application), 'resize' (adjusts the size/position of a named window or the active window if name is omitted), 'switch' (brings specific window into focus).",
     annotations=ToolAnnotations(
         title="App",
         readOnlyHint=False,
@@ -88,7 +88,7 @@ def app_tool(mode:Literal['launch','resize','switch']='launch',name:str|None=Non
     
 @mcp.tool(
     name="PowerShell",
-    description="A comprehensive system tool for executing any PowerShell commands. Use it to navigate the file system, manage files and processes, and execute system-level operations. Capable of accessing web content (e.g., via Invoke-WebRequest), interacting with network resources, and performing complex administrative tasks. This tool provides full access to the underlying operating system capabilities, making it the primary interface for system automation, scripting, and deep system interaction.",
+    description="Shell/command execution. Keywords: shell, run, execute, cmd, terminal, command line, script. A comprehensive system tool for executing any PowerShell commands. Use it to navigate the file system, manage files and processes, and execute system-level operations. Capable of accessing web content (e.g., via Invoke-WebRequest), interacting with network resources, and performing complex administrative tasks. This tool provides full access to the underlying operating system capabilities, making it the primary interface for system automation, scripting, and deep system interaction.",
     annotations=ToolAnnotations(
         title="PowerShell",
         readOnlyHint=False,
@@ -178,7 +178,7 @@ def file_system_tool(
 
 @mcp.tool(
     name='Snapshot',
-    description="Captures complete desktop state including: system language, focused/opened windows, interactive elements (buttons, text fields, links, menus with coordinates), and scrollable areas. Set use_vision=True to include screenshot with cursor highlight. Set use_annotation=False to get a clean screenshot without bounding box overlays on UI elements (default: True, draws colored rectangles around detected elements). Set use_ui_tree=False for a faster screenshot-only snapshot when you do not need interactive or scrollable element extraction. Set width_reference_lines/height_reference_lines to overlay a grid for better spatial reasoning (make sure vision is enabled to use it). Set use_dom=True for browser content to get web page elements instead of browser UI. Set display=[0] or display=[0,1] to limit all returned Snapshot information to specific screens; omit it to keep the default full-desktop behavior. Always call this first to understand the current desktop state before taking actions.",
+    description="Take a screenshot and inspect the screen. Keywords: screenshot, screen capture, see screen, observe, look, inspect, UI elements, what's on screen. Captures complete desktop state including: system language, focused/opened windows, interactive elements (buttons, text fields, links, menus with coordinates), and scrollable areas. Set use_vision=True to include screenshot with cursor highlight. Set use_annotation=False to get a clean screenshot without bounding box overlays on UI elements (default: True, draws colored rectangles around detected elements). Set use_ui_tree=False for a faster screenshot-only snapshot when you do not need interactive or scrollable element extraction. Set width_reference_lines/height_reference_lines to overlay a grid for better spatial reasoning (make sure vision is enabled to use it). Set use_dom=True for browser content to get web page elements instead of browser UI. Set display=[0] or display=[0,1] to limit all returned Snapshot information to specific screens; omit it to keep the default full-desktop behavior. Always call this first to understand the current desktop state before taking actions.",
     annotations=ToolAnnotations(
         title="Snapshot",
         readOnlyHint=True,
@@ -482,7 +482,7 @@ def wait_tool(duration: int, ctx: Context = None) -> str:
 
 @mcp.tool(
     name="Scrape",
-    description="Fetch content from a URL or the active browser tab. By default (use_dom=False), performs a lightweight HTTP request to the URL and returns markdown content of complete webpage. Note: Some websites may block automated HTTP requests. If this fails, open the page in a browser and retry with use_dom=True to extract visible text from the active tab's DOM within the viewport using the accessibility tree data.",
+    description="Fetch/scrape web page content from a URL. Keywords: scrape, fetch, browse, web, URL, extract, download, read webpage. By default (use_dom=False), performs a lightweight HTTP request to the URL and returns a clean LLM-processed summary of the page to avoid context bloat. Provide query to focus extraction on specific information. Set use_dom=True to extract from the active browser tab's DOM instead (required when site blocks HTTP requests). Set use_sampling=False to get raw content without LLM processing.",
     annotations=ToolAnnotations(
         title="Scrape",
         readOnlyHint=True,
@@ -492,24 +492,50 @@ def wait_tool(duration: int, ctx: Context = None) -> str:
     ),
 )
 @with_analytics(analytics, "Scrape-Tool")
-def scrape_tool(url: str, use_dom: bool | str = False, ctx: Context = None) -> str:
+async def scrape_tool(
+    url: str,
+    query: str | None = None,
+    use_dom: bool | str = False,
+    use_sampling: bool | str = True,
+    ctx: Context = None,
+) -> str:
     use_dom = use_dom is True or (isinstance(use_dom, str) and use_dom.lower() == "true")
+    use_sampling = use_sampling is True or (isinstance(use_sampling, str) and use_sampling.lower() == "true")
+
     if not use_dom:
         content = desktop.scrape(url)
-        return f"URL:{url}\nContent:\n{content}"
+    else:
+        desktop_state = desktop.get_state(use_vision=False, use_dom=True)
+        tree_state = desktop_state.tree_state
+        if not tree_state.dom_node:
+            return f"No DOM information found. Please open {url} in browser first."
+        dom_node = tree_state.dom_node
+        vertical_scroll_percent = dom_node.vertical_scroll_percent
+        content = "\n".join([node.text for node in tree_state.dom_informative_nodes])
+        header_status = "Reached top" if vertical_scroll_percent <= 0 else "Scroll up to see more"
+        footer_status = (
+            "Reached bottom" if vertical_scroll_percent >= 100 else "Scroll down to see more"
+        )
+        content = f"{header_status}\n{content}\n{footer_status}"
 
-    desktop_state = desktop.get_state(use_vision=False, use_dom=use_dom)
-    tree_state = desktop_state.tree_state
-    if not tree_state.dom_node:
-        return f"No DOM information found. Please open {url} in browser first."
-    dom_node = tree_state.dom_node
-    vertical_scroll_percent = dom_node.vertical_scroll_percent
-    content = "\n".join([node.text for node in tree_state.dom_informative_nodes])
-    header_status = "Reached top" if vertical_scroll_percent <= 0 else "Scroll up to see more"
-    footer_status = (
-        "Reached bottom" if vertical_scroll_percent >= 100 else "Scroll down to see more"
-    )
-    return f"URL:{url}\nContent:\n{header_status}\n{content}\n{footer_status}"
+    if use_sampling and ctx is not None:
+        try:
+            focus = f" Focus specifically on: {query}." if query else ""
+            result = await ctx.sample(
+                messages=f"Raw scraped content from {url}:\n\n{content}",
+                system_prompt=(
+                    "You are a web content extractor. Given raw webpage content, extract and present "
+                    "only the meaningful information in clean, concise prose or structured format. "
+                    "Strip out navigation menus, cookie banners, ads, footer links, and all other "
+                    f"boilerplate. Preserve important data, facts, and structure.{focus}"
+                ),
+                max_tokens=2048,
+            )
+            return f"URL: {url}\nContent:\n{result.text}"
+        except Exception:
+            pass  # Fall through to raw content if sampling not supported by client
+
+    return f"URL: {url}\nContent:\n{content}"
 
 
 @mcp.tool(
@@ -590,7 +616,7 @@ def multi_edit_tool(
 
 @mcp.tool(
     name="Clipboard",
-    description='Manages Windows clipboard operations. Use mode="get" to read current clipboard content, mode="set" to set clipboard text.',
+    description='Copy/paste clipboard operations. Keywords: copy, paste, cut, clipboard, text transfer. Use mode="get" to read current clipboard content, mode="set" to set clipboard text.',
     annotations=ToolAnnotations(
         title="Clipboard",
         readOnlyHint=False,
@@ -634,7 +660,7 @@ def clipboard_tool(
 
 @mcp.tool(
     name="Process",
-    description='Manages system processes. Use mode="list" to list running processes with filtering and sorting options. Use mode="kill" to terminate processes by PID or name.',
+    description='List and kill running processes. Keywords: task manager, running tasks, kill, terminate, stop process, PID, CPU, memory usage. Use mode="list" to list running processes with filtering and sorting options. Use mode="kill" to terminate processes by PID or name.',
     annotations=ToolAnnotations(
         title="Process",
         readOnlyHint=False,
@@ -688,7 +714,7 @@ def notification_tool(title: str, message: str, ctx: Context = None) -> str:
 
 @mcp.tool(
     name='Registry',
-    description='Accesses the Windows Registry. Use mode="get" to read a value, mode="set" to create/update a value, mode="delete" to remove a value or key, mode="list" to list values and sub-keys under a path. Paths use PowerShell format (e.g. "HKCU:\\Software\\MyApp", "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion").',
+    description='Read and write the Windows Registry. Keywords: regedit, registry key, HKEY, HKCU, HKLM, Windows settings, registry value. Use mode="get" to read a value, mode="set" to create/update a value, mode="delete" to remove a value or key, mode="list" to list values and sub-keys under a path. Paths use PowerShell format (e.g. "HKCU:\\Software\\MyApp", "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion").',
     annotations=ToolAnnotations(
         title="Registry",
         readOnlyHint=False,
