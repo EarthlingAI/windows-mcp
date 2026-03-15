@@ -1276,11 +1276,14 @@ class Desktop:
         safe_message = ps_quote_for_xml(message)
 
         ps_script = (
-            "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null\n"
-            "[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null\n"
             f"$notifTitle = {safe_title}\n"
             f"$notifMessage = {safe_message}\n"
-            '$template = @"\n'
+            "$toastSent = $false\n"
+            # Try WinRT toast first
+            "try {\n"
+            "    [void][Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]\n"
+            "    [void][Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime]\n"
+            '    $template = @"\n'
             "<toast>\n"
             "    <visual>\n"
             '        <binding template="ToastGeneric">\n'
@@ -1290,11 +1293,26 @@ class Desktop:
             "    </visual>\n"
             "</toast>\n"
             '"@\n'
-            "$xml = New-Object Windows.Data.Xml.Dom.XmlDocument\n"
-            "$xml.LoadXml($template)\n"
-            '$notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Windows MCP")\n'
-            "$toast = New-Object Windows.UI.Notifications.ToastNotification $xml\n"
-            "$notifier.Show($toast)"
+            "    $xml = New-Object Windows.Data.Xml.Dom.XmlDocument\n"
+            "    $xml.LoadXml($template)\n"
+            '    $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Windows MCP")\n'
+            "    $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)\n"
+            "    $notifier.Show($toast)\n"
+            "    $toastSent = $true\n"
+            "} catch {}\n"
+            # Fallback to System.Windows.Forms balloon notification
+            "if (-not $toastSent) {\n"
+            "    Add-Type -AssemblyName System.Windows.Forms\n"
+            "    $balloon = New-Object System.Windows.Forms.NotifyIcon\n"
+            "    $balloon.Icon = [System.Drawing.SystemIcons]::Information\n"
+            "    $balloon.BalloonTipTitle = $notifTitle\n"
+            "    $balloon.BalloonTipText = $notifMessage\n"
+            "    $balloon.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Info\n"
+            "    $balloon.Visible = $true\n"
+            "    $balloon.ShowBalloonTip(5000)\n"
+            "    Start-Sleep -Milliseconds 5500\n"
+            "    $balloon.Dispose()\n"
+            "}\n"
         )
         response, status = self.execute_command(ps_script)
         if status == 0:
